@@ -1,0 +1,148 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+
+var debug = require('debug')('pickitup:server');
+var http = require('http');
+var UUID = require('node-uuid');
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+
+/**
+ * ADDED!! Require Socket.IO
+ */
+var io = require('socket.io')(server);
+
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * ADDED!! Socket.IO Connection.
+ */
+
+game_server = require('../public/javascripts/game.server.js');
+
+
+io.sockets.on('connection', function(client) {
+	client.userid = UUID();
+
+            //tell the player they connected, giving them their id
+        client.emit('onconnected', { id: client.userid } );
+
+            //now we can find them a game to play with someone.
+            //if no game exists with someone waiting, they create one and wait.
+        game_server.findGame(client);
+
+            //Useful to know when someone connects
+        console.log('\t socket.io:: player ' + client.userid + ' connected');
+        
+
+            //Now we want to handle some of the messages that clients will send.
+            //They send messages here, and we send them to the game_server to handle.
+        client.on('message', function(m) {
+
+            game_server.onMessage(client, m);
+
+        }); //client.on message
+
+            //When this client disconnects, we want to tell the game server
+            //about that as well, so it can remove them from the game they are
+            //in, and make sure the other player knows that they left and so on.
+        client.on('disconnect', function () {
+
+                //Useful to know when soomeone disconnects
+            console.log('\t socket.io:: client disconnected ' + client.userid + ' ' + client.game_id);
+            
+                //If the client was in a game, set by game_server.findGame,
+                //we can tell the game server to update that game state.
+            if(client.game && client.game.id) {
+
+                //player leaving a game should destroy that game
+                game_server.endGame(client.game.id, client.userid);
+
+            } //client.game_id
+
+        }); //client.on disconnect
+});
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+    var port = parseInt(val, 10);
+
+    if (isNaN(port)) {
+        // named pipe
+        return val;
+    }
+
+    if (port >= 0) {
+        // port number
+        return port;
+    }
+
+    return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+    if (error.syscall !== 'listen') {
+        throw error;
+    }
+
+    var bind = typeof port === 'string' ?
+        'Pipe ' + port :
+        'Port ' + port;
+
+    // handle specific listen errors with friendly messages
+    switch (error.code) {
+        case 'EACCES':
+            console.error(bind + ' requires elevated privileges');
+            process.exit(1);
+            break;
+        case 'EADDRINUSE':
+            console.error(bind + ' is already in use');
+            process.exit(1);
+            break;
+        default:
+            throw error;
+    }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+    var addr = server.address();
+    var bind = typeof addr === 'string' ?
+        'pipe ' + addr :
+        'port ' + addr.port;
+    debug('Listening on ' + bind);
+}
